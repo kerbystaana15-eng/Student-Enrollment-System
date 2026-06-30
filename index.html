@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Enrollment System (CRUD)</title>
+    <style>
+        :root {
+            --primary: #2b6cb0;
+            --success: #38a169;
+            --danger: #e53e3e;
+            --dark: #2d3748;
+            --light: #f7fafc;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--light);
+            color: var(--dark);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        h2 {
+            text-align: center;
+            color: var(--primary);
+            margin-bottom: 30px;
+        }
+
+        /* Form Styling */
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            cursor: pointer;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        .btn-primary { background-color: var(--primary); color: white; }
+        .btn-primary:hover { background-color: #2b5c8f; }
+        .btn-success { background-color: var(--success); color: white; }
+        .btn-danger { background-color: var(--danger); color: white; }
+        .btn-secondary { background-color: #718096; color: white; }
+
+        .form-buttons {
+            margin-top: 20px;
+        }
+
+        .status-message {
+            min-height: 24px;
+            margin-bottom: 15px;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .status-message.error {
+            color: var(--danger);
+        }
+
+        .status-message.success {
+            color: var(--success);
+        }
+
+        /* Table Styling */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 30px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        th {
+            background-color: #edf2f7;
+            color: var(--dark);
+        }
+
+        tr:hover {
+            background-color: #f8fafc;
+        }
+
+        .actions button {
+            padding: 5px 10px;
+            font-size: 0.85em;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Student Enrollment System</h2>
+    <div id="statusMessage" class="status-message" aria-live="polite"></div>
+
+    <form id="studentForm">
+        <input type="hidden" id="studentId">
+        
+        <div class="form-group">
+            <label for="studentName">Full Name</label>
+            <input type="text" id="studentName" required placeholder="John Doe">
+        </div>
+
+        <div class="form-group">
+            <label for="studentEmail">Email Address</label>
+            <input type="email" id="studentEmail" required placeholder="john@example.com">
+        </div>
+
+        <div class="form-group">
+            <label for="course">Course / Program</label>
+            <select id="course" required>
+                <option value="">-- Select a Course --</option>
+                <option value="BS Information Systems">BS Information Systems</option>
+                <option value="BS Business Administration">BS Business Administration</option>
+                <option value="BS Computer Science">BS Computer Science</option>
+            </select>
+        </div>
+
+        <div class="form-buttons">
+            <button type="submit" id="submitBtn" class="btn-primary">Enroll Student</button>
+            <button type="button" id="cancelBtn" class="btn-secondary" style="display: none;" onclick="clearForm()">Cancel Edit</button>
+        </div>
+    </form>
+
+    <hr style="margin-top: 40px; border: 0; border-top: 1px solid #e2e8f0;">
+
+    <h3>Enrolled Students</h3>
+    <table id="studentTable">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Course</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="studentTableBody">
+            </tbody>
+    </table>
+</div>
+
+<script type="module">
+    import { initializeApp } from 'firebase/app';
+    import {
+        getFirestore,
+        collection,
+        query,
+        orderBy,
+        addDoc,
+        updateDoc,
+        deleteDoc,
+        doc,
+        onSnapshot,
+        serverTimestamp,
+    } from 'firebase/firestore';
+
+    const firebaseConfig = {
+        apiKey: 'AIzaSyD843kRPDbj-stD0RuyGWb5xHMxjiAOZyA',
+        authDomain: 'sesdatabase-96281.firebaseapp.com',
+        projectId: 'sesdatabase-96281',
+        storageBucket: 'sesdatabase-96281.appspot.com',
+        messagingSenderId: '467574690380',
+        appId: '1:467574690380:web:4778710f691fa03db75ae9',
+        measurementId: 'G-DV1PN4EQF0',
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const studentsCollection = collection(db, 'students');
+    const studentsQuery = query(studentsCollection, orderBy('createdAt', 'desc'));
+
+    let students = [];
+    let studentForm;
+    let studentIdInput;
+    let studentNameInput;
+    let studentEmailInput;
+    let courseInput;
+    let submitBtn;
+    let cancelBtn;
+    let studentTableBody;
+    let statusMessage;
+
+    function setStatus(message, isError = false) {
+        if (!statusMessage) return;
+        statusMessage.textContent = message;
+        statusMessage.className = `status-message${isError ? ' error' : ' success'}`;
+    }
+
+    function renderTable() {
+        if (!studentTableBody) return;
+        studentTableBody.innerHTML = '';
+
+        if (students.length === 0) {
+            studentTableBody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#a0aec0;">No students enrolled yet.</td></tr>';
+            return;
+        }
+
+        students.forEach((student, index) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${index + 1}</td>
+                <td>${student.name || ''}</td>
+                <td>${student.email || ''}</td>
+                <td>${student.course || ''}</td>
+                <td class="actions">
+                    <button class="btn-success" type="button" onclick="window.editStudent('${student.id}')">Edit</button>
+                    <button class="btn-danger" type="button" onclick="window.deleteStudent('${student.id}')">Delete</button>
+                </td>
+            `;
+            studentTableBody.appendChild(row);
+        });
+    }
+
+    function editStudent(id) {
+        const student = students.find((item) => item.id === id);
+        if (student && studentIdInput && studentNameInput && studentEmailInput && courseInput) {
+            studentIdInput.value = student.id;
+            studentNameInput.value = student.name;
+            studentEmailInput.value = student.email;
+            courseInput.value = student.course;
+
+            submitBtn.textContent = 'Update Student Info';
+            submitBtn.className = 'btn-success';
+            cancelBtn.style.display = 'inline-block';
+        }
+    }
+
+    async function deleteStudent(id) {
+        if (!confirm('Are you sure you want to remove this student?')) {
+            return;
+        }
+
+        try {
+            await deleteDoc(doc(db, 'students', id));
+            setStatus('Student removed successfully.');
+            if (studentIdInput && studentIdInput.value === id) {
+                clearForm();
+            }
+        } catch (error) {
+            console.error('Error deleting student:', error);
+            setStatus('Unable to delete student. Please try again.', true);
+        }
+    }
+
+    function clearForm() {
+        if (!studentForm) return;
+        studentForm.reset();
+        if (studentIdInput) studentIdInput.value = '';
+        submitBtn.textContent = 'Enroll Student';
+        submitBtn.className = 'btn-primary';
+        if (cancelBtn) cancelBtn.style.display = 'none';
+        setStatus('');
+    }
+
+    function initializeAppUI() {
+        studentForm = document.getElementById('studentForm');
+        studentIdInput = document.getElementById('studentId');
+        studentNameInput = document.getElementById('studentName');
+        studentEmailInput = document.getElementById('studentEmail');
+        courseInput = document.getElementById('course');
+        submitBtn = document.getElementById('submitBtn');
+        cancelBtn = document.getElementById('cancelBtn');
+        studentTableBody = document.getElementById('studentTableBody');
+        statusMessage = document.getElementById('statusMessage');
+
+        if (!studentForm) {
+            console.error('Student form not found in the DOM.');
+            return;
+        }
+
+        studentForm.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const id = studentIdInput.value;
+            const name = studentNameInput.value.trim();
+            const email = studentEmailInput.value.trim();
+            const course = courseInput.value;
+
+            if (!name || !email || !course) {
+                setStatus('Please fill in all fields before submitting.', true);
+                return;
+            }
+
+            try {
+                if (id === '') {
+                    await addDoc(studentsCollection, {
+                        name,
+                        email,
+                        course,
+                        createdAt: serverTimestamp(),
+                    });
+                    setStatus('Student enrolled successfully.');
+                } else {
+                    await updateDoc(doc(db, 'students', id), {
+                        name,
+                        email,
+                        course,
+                    });
+                    setStatus('Student updated successfully.');
+                }
+
+                clearForm();
+            } catch (error) {
+                console.error('Error saving student:', error);
+                setStatus('Unable to save student. Please check your Firebase configuration and Firestore rules.', true);
+            }
+        });
+
+        onSnapshot(studentsQuery, (snapshot) => {
+            students = snapshot.docs.map((document) => ({
+                id: document.id,
+                ...document.data(),
+            }));
+            renderTable();
+        }, (error) => {
+            console.error('Error loading students:', error);
+            setStatus('Unable to load students from Firestore.', true);
+        });
+
+        window.editStudent = editStudent;
+        window.deleteStudent = deleteStudent;
+        window.clearForm = clearForm;
+
+        setStatus('Ready. Enter student data and click Enroll Student.');
+        console.log('Firebase initialized:', { app, db });
+    }
+
+    window.addEventListener('DOMContentLoaded', initializeAppUI);
+</script>
+
+</body>
+</html>
